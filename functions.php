@@ -8,12 +8,6 @@
     add_action( 'wp_enqueue_scripts', 'custom_enquene_scripts' );
 
 
-    // function wpb_add_google_fonts() {
-    //     wp_enqueue_style('wpb-google-fonts', 'https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800;900&display=swap', false);
-    // }
-    // add_action('wp_enqueue_scripts', 'wpb_add_google_fonts');
-
-
     // Google Analytics
     function add_google_analytics() {
         $ga_script = "window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);}gtag('js', new Date());gtag('config', 'G-VSG959XWRE');";
@@ -26,7 +20,7 @@
         ) );
 
     }
-    add_action( 'wp_head', 'add_google_analytics', 1 );
+    //add_action( 'wp_head', 'add_google_analytics', 1 );
 
 
 
@@ -379,7 +373,7 @@
     
         return $output;
     }
-    add_shortcode('grouped_acf_file_links', 'grouped_acf_file_links_shortcode');
+    // add_shortcode('grouped_acf_file_links', 'grouped_acf_file_links_shortcode');
 
 
 
