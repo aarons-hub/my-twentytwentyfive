@@ -73,16 +73,17 @@ p {
 .more-link {
   display: block;
 }
-body {
-  border: 2px solid blue !important;
-}
 
 /* Begin custom styles */
 */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap");
+@import url("font-family: 'Open Sans', sans-serif;");
 @import url("css/owl.carousel.css");
 @import url("css/owl.theme.default.css");
 
+body {
+  border: 2px solid orange !important;
+  font-family: 'Inter', sans-serif;
+}
 :where(.wp-block-navigation .wp-block-navigation__submenu-container .wp-block-navigation-item a:not(.wp-element-button)),
 :where(.wp-block-navigation .wp-block-navigation__submenu-container .wp-block-navigation-submenu a:not(.wp-element-button)),
 :where(.wp-block-navigation .wp-block-navigation__submenu-container .wp-block-navigation-submenu button.wp-block-navigation-item__content),
