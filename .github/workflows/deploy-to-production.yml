@@ -1,0 +1,150 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      production_repo:
+        description: 'Production repository (owner/repo)'
+        required: false
+        default: 'aarons-hub/my-twentytwentyfive-production'
+
+jobs:
+  deploy:
+    name: Deploy Theme to Production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout staging repository
+        uses: actions/checkout@v4
+        with:
+          path: staging
+          fetch-depth: 0
+      
+      - name: Get staging commit info
+        id: staging-commit
+        run: |
+          cd staging
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "message=$(git log -1 --pretty=%B | head -n 1)" >> $GITHUB_OUTPUT
+      
+      - name: Set production repository
+        id: prod-repo
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.production_repo }}" ]; then
+            echo "repo=${{ github.event.inputs.production_repo }}" >> $GITHUB_OUTPUT
+          else
+            # Default production repository - can be customized
+            echo "repo=${{ vars.PRODUCTION_REPO || 'aarons-hub/my-twentytwentyfive-production' }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Clone production repository
+        env:
+          PRODUCTION_REPO_TOKEN: ${{ secrets.PRODUCTION_REPO_TOKEN }}
+        run: |
+          if [ -z "$PRODUCTION_REPO_TOKEN" ]; then
+            echo "Error: PRODUCTION_REPO_TOKEN secret is not set"
+            echo "Please configure this secret in repository settings with a PAT that has 'repo' scope"
+            exit 1
+          fi
+          
+          REPO="${{ steps.prod-repo.outputs.repo }}"
+          
+          # Configure git credential helper to avoid token exposure in process list
+          git config --global credential.helper store
+          echo "https://x-access-token:${PRODUCTION_REPO_TOKEN}@github.com" > ~/.git-credentials
+          
+          git clone https://github.com/${REPO}.git production
+          
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to clone production repository ${REPO}"
+            echo "Please verify:"
+            echo "  1. The repository exists"
+            echo "  2. The PRODUCTION_REPO_TOKEN has access to the repository"
+            echo "  3. The token has 'repo' scope"
+            exit 1
+          fi
+      
+      - name: Copy theme files to production
+        run: |
+          echo "Copying theme files from staging to production..."
+          
+          # Remove existing files in production (except .git and .github)
+          cd production
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.github' -exec rm -rf {} +
+          
+          # Use rsync for reliable file synchronization
+          cd ..
+          rsync -av --exclude='.git' --exclude='.github' staging/ production/
+          
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to copy files to production"
+            exit 1
+          fi
+          
+          echo "Files copied successfully"
+      
+      - name: Commit and push to production
+        env:
+          PRODUCTION_REPO_TOKEN: ${{ secrets.PRODUCTION_REPO_TOKEN }}
+          STAGING_COMMIT_SHA: ${{ steps.staging-commit.outputs.sha }}
+        run: |
+          cd production
+          
+          # Configure git
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          
+          # Check if there are any changes
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes to deploy"
+            exit 0
+          fi
+          
+          # Stage all changes
+          git add -A
+          
+          # Create commit message (safely handling staging message)
+          COMMIT_MSG="Deploy from staging - ${STAGING_COMMIT_SHA}"
+          
+          # Commit changes
+          git commit -m "${COMMIT_MSG}"
+          
+          # Detect default branch and push (credentials already configured)
+          DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
+          if [ -z "$DEFAULT_BRANCH" ]; then
+            DEFAULT_BRANCH="main"
+          fi
+          
+          git push origin "${DEFAULT_BRANCH}"
+          
+          if [ $? -eq 0 ]; then
+            echo "Successfully deployed to production!"
+            echo "Commit SHA: $(git rev-parse --short HEAD)"
+            echo "Branch: ${DEFAULT_BRANCH}"
+          else
+            echo "Error: Failed to push to production repository"
+            exit 1
+          fi
+      
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "## Deployment Successful! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Staging Commit:** ${{ steps.staging-commit.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Production Repository:** ${{ steps.prod-repo.outputs.repo }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed at:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Deployment failure notification
+        if: failure()
+        run: |
+          echo "## Deployment Failed :x:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Please check the workflow logs for details." >> $GITHUB_STEP_SUMMARY
+          echo "**Staging Commit:** ${{ steps.staging-commit.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Production Repository:** ${{ steps.prod-repo.outputs.repo }}" >> $GITHUB_STEP_SUMMARY
