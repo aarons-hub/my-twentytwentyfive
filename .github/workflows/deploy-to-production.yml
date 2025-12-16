@@ -51,7 +51,12 @@ jobs:
           fi
           
           REPO="${{ steps.prod-repo.outputs.repo }}"
-          git clone https://x-access-token:${PRODUCTION_REPO_TOKEN}@github.com/${REPO}.git production
+          
+          # Configure git credential helper to avoid token exposure in process list
+          git config --global credential.helper store
+          echo "https://x-access-token:${PRODUCTION_REPO_TOKEN}@github.com" > ~/.git-credentials
+          
+          git clone https://github.com/${REPO}.git production
           
           if [ $? -ne 0 ]; then
             echo "Error: Failed to clone production repository ${REPO}"
@@ -70,15 +75,21 @@ jobs:
           cd production
           find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.github' -exec rm -rf {} +
           
-          # Copy all files from staging except .git and .github
-          cd ../staging
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.github' -exec cp -r {} ../production/ \;
+          # Use rsync for reliable file synchronization
+          cd ..
+          rsync -av --exclude='.git' --exclude='.github' staging/ production/
+          
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to copy files to production"
+            exit 1
+          fi
           
           echo "Files copied successfully"
       
       - name: Commit and push to production
         env:
           PRODUCTION_REPO_TOKEN: ${{ secrets.PRODUCTION_REPO_TOKEN }}
+          STAGING_COMMIT_SHA: ${{ steps.staging-commit.outputs.sha }}
         run: |
           cd production
           
@@ -95,22 +106,24 @@ jobs:
           # Stage all changes
           git add -A
           
-          # Create commit message
-          COMMIT_MSG="Deploy from staging - ${{ steps.staging-commit.outputs.sha }}"
-          if [ -n "${{ steps.staging-commit.outputs.message }}" ]; then
-            COMMIT_MSG="${COMMIT_MSG}: ${{ steps.staging-commit.outputs.message }}"
-          fi
+          # Create commit message (safely handling staging message)
+          COMMIT_MSG="Deploy from staging - ${STAGING_COMMIT_SHA}"
           
           # Commit changes
           git commit -m "${COMMIT_MSG}"
           
-          # Push to production
-          REPO="${{ steps.prod-repo.outputs.repo }}"
-          git push https://x-access-token:${PRODUCTION_REPO_TOKEN}@github.com/${REPO}.git main
+          # Detect default branch and push (credentials already configured)
+          DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
+          if [ -z "$DEFAULT_BRANCH" ]; then
+            DEFAULT_BRANCH="main"
+          fi
+          
+          git push origin "${DEFAULT_BRANCH}"
           
           if [ $? -eq 0 ]; then
             echo "Successfully deployed to production!"
             echo "Commit SHA: $(git rev-parse --short HEAD)"
+            echo "Branch: ${DEFAULT_BRANCH}"
           else
             echo "Error: Failed to push to production repository"
             exit 1
